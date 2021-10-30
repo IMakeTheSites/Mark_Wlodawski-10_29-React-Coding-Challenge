@@ -1,7 +1,7 @@
 import {FC} from 'react';
 import {connect} from 'react-redux';
 
-import {RootState, UserInputType} from 'types';
+import {RootState, UserInputType, JournalType} from 'types';
 import {dateToString, toCSV} from 'utils';
 
 interface Balance {
@@ -59,20 +59,75 @@ const BalanceOutput: FC<ConnectProps> = ({balance, totalCredit, totalDebit, user
   );
 };
 
+interface ILabelByAccount {
+  [key: number]: string;
+}
+interface IJournalsByAccount {
+  [key: number]: Omit<JournalType, 'PERIOD'> & {
+    DESCRIPTION: string;
+    BALANCE: number;
+  };
+}
+
 export default connect(
-  (state: RootState): ConnectProps => {
+  ({ userInput, accounts, journalEntries }: RootState): ConnectProps => {
     let balance: Balance[] = [];
+    let totalCredit = 0;
+    let totalDebit = 0;
 
     /* YOUR CODE GOES HERE */
+    const labelByAccount: ILabelByAccount = {};
+    accounts.forEach(acc => {
+      labelByAccount[acc.ACCOUNT] = acc.LABEL;
+    });
 
-    const totalCredit = balance.reduce((acc, entry) => acc + entry.CREDIT, 0);
-    const totalDebit = balance.reduce((acc, entry) => acc + entry.DEBIT, 0);
+    const journalsByAccount: IJournalsByAccount = {};
+    journalEntries.forEach(
+      (entry) =>
+        {
+          const isValid =
+            labelByAccount[entry.ACCOUNT] && // if entry exists in accounts
+            (!userInput.startAccount || entry.ACCOUNT >= userInput.startAccount) &&
+            (!userInput.endAccount || entry.ACCOUNT <= userInput.endAccount) &&
+            (!userInput.startPeriod ||
+              !Date.parse(userInput.startPeriod.toString()) || // if input is '*', startPeriod is 'Invalid Date'
+              entry.PERIOD.getTime() >= userInput.startPeriod.getTime()) &&
+            (!userInput.endPeriod ||
+              !Date.parse(userInput.endPeriod.toString()) || // if input is '*', endPeriod is 'Invalid Date'
+              entry.PERIOD.getTime() <= userInput.endPeriod.getTime());
+
+          if (!isValid) return;
+
+          totalDebit += entry.DEBIT;
+          totalCredit += entry.CREDIT;
+
+          if (!journalsByAccount[entry.ACCOUNT]) {
+            journalsByAccount[entry.ACCOUNT] = {
+              ACCOUNT: entry.ACCOUNT,
+              DEBIT: entry.DEBIT,
+              CREDIT: entry.CREDIT,
+              DESCRIPTION: labelByAccount[entry.ACCOUNT],
+              BALANCE: entry.DEBIT - entry.CREDIT,
+            }
+          } else {
+            const {DEBIT, CREDIT, BALANCE } = journalsByAccount[entry.ACCOUNT];
+            journalsByAccount[entry.ACCOUNT] = {
+              ...journalsByAccount[entry.ACCOUNT],
+              DEBIT: DEBIT + entry.DEBIT,
+              CREDIT: CREDIT + entry.CREDIT,
+              BALANCE: BALANCE + entry.DEBIT - entry.CREDIT,
+            };
+          }
+        }
+      );
+    
+    balance = Object.values(journalsByAccount);
 
     return {
       balance,
       totalCredit,
       totalDebit,
-      userInput: state.userInput,
+      userInput,
     };
   },
 )(BalanceOutput);
